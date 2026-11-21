@@ -5,12 +5,7 @@ import mediapipe as mp
 import numpy as np
 from PIL import Image
 
-
-MODEL_PATH = (
-    Path(__file__).resolve().parent
-    / "models"
-    / "hand_landmarker.task"
-)
+MODEL_PATH = Path(__file__).resolve().parent / "models" / "hand_landmarker.task"
 
 
 def detect_hand(image_bytes):
@@ -26,16 +21,12 @@ def detect_hand(image_bytes):
     )
 
     options = mp.tasks.vision.HandLandmarkerOptions(
-        base_options=mp.tasks.BaseOptions(
-            model_asset_path=str(MODEL_PATH)
-        ),
+        base_options=mp.tasks.BaseOptions(model_asset_path=str(MODEL_PATH)),
         running_mode=mp.tasks.vision.RunningMode.IMAGE,
         num_hands=1,
     )
 
-    with mp.tasks.vision.HandLandmarker.create_from_options(
-        options
-    ) as landmarker:
+    with mp.tasks.vision.HandLandmarker.create_from_options(options) as landmarker:
         result = landmarker.detect(mp_image)
 
     if not result.hand_landmarks:
