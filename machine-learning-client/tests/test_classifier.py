@@ -1,34 +1,27 @@
-"""Test the complete ASL hand detection and classification pipeline."""
+"""Manual integration test for the ASL classifier."""
 
 from pathlib import Path
-from hand_tracking import detect_hand
 from classifier import predict
+from hand_tracking import detect_hand
 
 
 def main():
-    image_path = Path("test_hand.jpg")
+    """Detect and classify an ASL hand sign from a test image"""
+    image_path = Path(__file__).parent / "test_hand.jpg"
 
-    if not image_path.exists():
-        print("Please add test_hand.jpg to the machine-learning-client folder.")
+    if not image_path.is_file():
+        print(f"Test image not found: {image_path}")
         return
 
-    image_bytes = image_path.read_bytes()
-
-    # detect hand landmarks from the image.
-    landmarks = detect_hand(image_bytes)
-
+    landmarks = detect_hand(image_path.read_bytes())
     if landmarks is None:
         print("No hand was detected.")
         return
 
-    print("Hand detected")
-    print("Number of landmarks:", len(landmarks))
-
-    # classify the detected hand landmarks.
+    print(f"Hand detected: {len(landmarks)} landmarks")
     result = predict(landmarks)
-
-    print("Predicted ASL sign:", result["label"])
-    print(f'Confidence: {result["confidence"] * 100:.2f}%')
+    print(f"Predicted ASL sign: {result['label']}")
+    print(f"Confidence: {result['confidence']:.2%}")
 
 
 if __name__ == "__main__":
