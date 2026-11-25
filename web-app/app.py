@@ -1,14 +1,44 @@
 """Flask web app for ASL alphabet picture-to-text."""
 
+import io
+import math
 import os
 from datetime import datetime, timezone
 
 import requests
 from flask import Flask, current_app, render_template, request
+from PIL import Image, UnidentifiedImageError
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
+
+def validate_image(image_bytes):
+    """Check whether the uploaded file is a valid image."""
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            if image.format not in {"JPEG", "PNG", "WEBP", "GIF"}:
+                return False
+
+            if image.width * image.height > 20_000_000:
+                return False
+
+            image.verify()
+
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            image.load()
+
+        return True
+
+    except (
+        UnidentifiedImageError,
+        OSError,
+        ValueError,
+        SyntaxError,
+        Image.DecompressionBombError,
+    ):
+        return False
 
 
 def create_app(test_config=None):
@@ -40,13 +70,18 @@ def create_app(test_config=None):
 
     @app.post("/translate")
     def translate():
-        """Store a letter for an uploaded handshape photo."""
+        """Validate and translate an uploaded handshape photo."""
         image = request.files.get("image")
+
         if image is None or not image.filename:
-            return render_index(error="Choose an image first.", status=400)
+            return render_index(
+                error="Choose an image first.",
+                status=400,
+            )
 
         filename = os.path.basename(image.filename)
         extension = os.path.splitext(filename)[1].lower()
+
         if extension not in ALLOWED_EXTENSIONS:
             return render_index(
                 error="Upload a JPG, PNG, WEBP, or GIF.",
@@ -54,16 +89,35 @@ def create_app(test_config=None):
             )
 
         image_bytes = image.read()
+
         if not image_bytes:
-            return render_index(error="That file is empty.", status=400)
+            return render_index(
+                error="That file is empty.",
+                status=400,
+            )
+
+        if not validate_image(image_bytes):
+            return render_index(
+                error="Invalid or corrupted image.",
+                status=400,
+            )
 
         result = classify_image(image_bytes, filename)
+
+        if result.get("error"):
+            return render_index(
+                error=result["error"],
+                status=result.get("status", 422),
+            )
+
         saved = save_translation(filename, result)
+
         if saved is None:
             return render_index(
                 error="Could not reach the database.",
                 status=500,
             )
+
         return render_index(latest=saved)
 
     @app.get("/history")
@@ -158,49 +212,114 @@ def serialize(document):
 
 
 def format_confidence(value):
-    """Format a 0 to 1 score as a percent."""
+    """Format a valid confidence score as a percent."""
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return "n/a"
-    if number <= 0:
+
+    if not math.isfinite(number) or not 0 <= number <= 1:
         return "n/a"
+
     return f"{round(number * 100)}%"
 
 
 def classify_image(image_bytes, filename):
-    """Ask the ML client for a letter. Never raises."""
-    # accesing app.py (MLC)
-    url = os.environ.get("ML_CLIENT_URL", "http://ml-client:8000/predict")
+    """Request and validate a prediction from the ML client."""
+    url = os.environ.get(
+        "ML_CLIENT_URL",
+        "http://ml-client:5000/predict",
+    )
+
     try:
         response = requests.post(
             url,
-            files={"image": (filename, image_bytes, "application/octet-stream")},
+            files={
+                "image": (
+                    filename,
+                    image_bytes,
+                    "application/octet-stream",
+                )
+            },
             timeout=10,
         )
+
         response.raise_for_status()
         payload = response.json()
-        letter = str(payload.get("letter") or payload.get("label") or "?")[:1].upper()
-        if not letter.isalpha():
-            letter = "?"
-        confidence = float(payload.get("confidence", 0))
-    except (requests.RequestException, ValueError, TypeError, AttributeError):
+
+        if not isinstance(payload, dict):
+            raise ValueError("Invalid response")
+
+        messages = {
+            "no_hand": "No hand detected.",
+            "low_confidence": "Not sure. Try a clearer photo.",
+        }
+
+        reason = payload.get("reason")
+
+        if reason is not None:
+            if reason not in messages:
+                raise ValueError("Unknown recognition error")
+
+            return {
+                "letter": "?",
+                "confidence": 0.0,
+                "error": messages[reason],
+                "status": 422,
+            }
+
+        raw_letter = payload.get("letter") or payload.get("label")
+
+        if not isinstance(raw_letter, str):
+            raise ValueError("Missing letter")
+
+        letter = raw_letter.strip().upper()
+
+        if len(letter) != 1 or letter not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+            return {
+                "letter": "?",
+                "confidence": 0.0,
+                "error": "No valid ASL letter recognized.",
+                "status": 422,
+            }
+
+        raw_confidence = payload.get("confidence")
+
+        if isinstance(raw_confidence, bool):
+            raise ValueError("Invalid confidence")
+
+        confidence = float(raw_confidence)
+
+        if not math.isfinite(confidence) or not 0 <= confidence <= 1:
+            raise ValueError("Invalid confidence")
+
+        return {
+            "letter": letter,
+            "confidence": confidence,
+            "error": None,
+        }
+
+    except requests.Timeout:
+        return {
+            "letter": "?",
+            "confidence": 0.0,
+            "error": "Recognition timed out. Please try again.",
+            "status": 504,
+        }
+
+    except (
+        requests.RequestException,
+        ValueError,
+        TypeError,
+        AttributeError,
+        OverflowError,
+    ):
         return {
             "letter": "?",
             "confidence": 0.0,
             "error": "Recognizer is not available yet.",
+            "status": 502,
         }
-
-    # turn MLC services reason into message the page can show
-    messages = {
-        "no_hand": "No hand detected.",
-        "low_confidence": "Not sure. Try a clearer photo.",
-    }
-    return {
-        "letter": letter,
-        "confidence": confidence,
-        "error": messages.get(payload.get("reason")),
-    }
 
 
 if __name__ == "__main__":

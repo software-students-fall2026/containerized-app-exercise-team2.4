@@ -9,6 +9,7 @@ pymongo = "*"
 requests = "*"
 pylint = "*"
 black = "*"
+pillow = "*"
 
 [dev-packages]
 pytest = "*"

@@ -6,6 +6,7 @@ import mongomock
 import pytest
 import requests
 from pymongo.errors import PyMongoError
+from PIL import Image
 
 from app import classify_image, create_app  # pylint: disable=import-error
 
@@ -52,6 +53,19 @@ class BrokenClient:
     def __getitem__(self, _name):
         """Return the broken database."""
         return BrokenDatabase()
+
+
+def make_test_image():
+    """Create a valid JPEG image for upload tests."""
+    buffer = io.BytesIO()
+
+    Image.new("RGB", (10, 10), color="white").save(
+        buffer,
+        format="JPEG",
+    )
+
+    buffer.seek(0)
+    return buffer
 
 
 @pytest.fixture
@@ -107,7 +121,7 @@ def test_translate_saves_a_letter(client, monkeypatch):
         return {"letter": "A", "confidence": 0.5, "error": None}
 
     monkeypatch.setattr("app.classify_image", fake_classify)
-    payload = {"image": (io.BytesIO(b"jpeg-bytes"), "folder/sign.JPG")}
+    payload = {"image": (make_test_image(), "folder/sign.JPG")}
     response = client.post(
         "/translate",
         data=payload,
@@ -182,7 +196,7 @@ def test_pages_when_database_is_down(monkeypatch):
     assert index.status_code == 200
     history = test_client.get("/history")
     assert history.status_code == 500
-    payload = {"image": (io.BytesIO(b"jpeg-bytes"), "sign.jpg")}
+    payload = {"image": (make_test_image(), "sign.jpg")}
     saved = test_client.post(
         "/translate",
         data=payload,
@@ -201,7 +215,7 @@ def test_upload_size_limit():
         }
     )
     test_client = application.test_client()
-    payload = {"image": (io.BytesIO(b"0123456789"), "sign.jpg")}
+    payload = {"image": (make_test_image(), "sign.jpg")}
     response = test_client.post(
         "/translate",
         data=payload,
@@ -209,3 +223,132 @@ def test_upload_size_limit():
     )
     assert response.status_code == 413
     assert b"5 MB" in response.data
+
+
+def test_translate_rejects_corrupted_image(client):
+    """Reject non-image data disguised as a JPEG."""
+    response = client.post(
+        "/translate",
+        data={"image": (io.BytesIO(b"fake image"), "sign.jpg")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 400
+    assert b"Invalid or corrupted image" in response.data
+
+
+def test_failed_translation_not_saved(client, monkeypatch):
+    """Failed recognition should not appear in history."""
+
+    def fake_classify(_image_bytes, _filename):
+        return {
+            "letter": "?",
+            "confidence": 0.0,
+            "error": "No hand detected.",
+            "status": 422,
+        }
+
+    monkeypatch.setattr("app.classify_image", fake_classify)
+
+    response = client.post(
+        "/translate",
+        data={"image": (make_test_image(), "sign.jpg")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 422
+    assert b"No hand detected." in response.data
+
+    history = client.get("/history")
+
+    assert b"No translations yet" in history.data
+
+
+@pytest.mark.parametrize(
+    "confidence",
+    [
+        -0.5,
+        1.5,
+        float("nan"),
+        float("inf"),
+        True,
+    ],
+)
+def test_invalid_confidence(monkeypatch, confidence):
+    """Reject invalid confidence scores."""
+
+    def fake_post(*_args, **_kwargs):
+        return FakeResponse(
+            {
+                "letter": "A",
+                "confidence": confidence,
+            }
+        )
+
+    monkeypatch.setattr("app.requests.post", fake_post)
+
+    result = classify_image(b"img", "sign.jpg")
+
+    assert result["error"] is not None
+    assert result["letter"] == "?"
+
+
+@pytest.mark.parametrize("letter", ["ABC", "7", "!", "é"])
+def test_invalid_letter(monkeypatch, letter):
+    """Reject predictions outside the English alphabet."""
+
+    def fake_post(*_args, **_kwargs):
+        return FakeResponse(
+            {
+                "letter": letter,
+                "confidence": 0.9,
+            }
+        )
+
+    monkeypatch.setattr("app.requests.post", fake_post)
+
+    result = classify_image(b"img", "sign.jpg")
+
+    assert result["letter"] == "?"
+    assert result["error"] is not None
+
+
+def test_recognition_timeout(monkeypatch):
+    """Handle ML request timeouts."""
+
+    def fake_post(*_args, **_kwargs):
+        raise requests.Timeout()
+
+    monkeypatch.setattr("app.requests.post", fake_post)
+
+    result = classify_image(b"img", "sign.jpg")
+
+    assert result["status"] == 504
+    assert result["error"] is not None
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "no_hand",
+        "low_confidence",
+    ],
+)
+def test_recognition_failure_reason(monkeypatch, reason):
+    """Handle expected ML recognition failures."""
+
+    def fake_post(*_args, **_kwargs):
+        return FakeResponse(
+            {
+                "label": None,
+                "confidence": 0.2,
+                "reason": reason,
+            }
+        )
+
+    monkeypatch.setattr("app.requests.post", fake_post)
+
+    result = classify_image(b"img", "sign.jpg")
+
+    assert result["status"] == 422
+    assert result["error"] is not None
