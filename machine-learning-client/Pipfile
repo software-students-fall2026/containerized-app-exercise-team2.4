@@ -6,6 +6,14 @@ name = "pypi"
 [packages]
 pylint = "*"
 black = "*"
+flask = "*"
+mediapipe = "*"
+numpy = "*"
+pillow = "*"
+onnxruntime = "*"
+huggingface_hub = "*"
+pytest = "*"
+pytest-cov = "*"
 
 [dev-packages]
 

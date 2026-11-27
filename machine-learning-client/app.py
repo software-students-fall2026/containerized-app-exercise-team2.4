@@ -11,6 +11,7 @@ CONFIDENCE_THRESHOLD = 0.6
 
 @app.post("/predict")
 def predict_sign():
+    """Find the hand in the uploaded image and return the ASL sign."""
     # get uploaded frame
     file = request.files.get("image")
     if file is None:
@@ -38,6 +39,7 @@ def predict_sign():
 # checks if server is running
 @app.get("/health")
 def health():
+    """Report that the server is running."""
     return jsonify({"status": "ok"})
 
 

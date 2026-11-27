@@ -1,9 +1,11 @@
-from pathlib import Path
+"""Manual check that detect_hand finds a hand in test_hand.jpg."""
 
+from pathlib import Path
 from hand_tracking import detect_hand
 
 
 def main():
+    """Load test_hand.jpg and print the detected landmarks."""
     image_path = Path("test_hand.jpg")
 
     if not image_path.exists():
