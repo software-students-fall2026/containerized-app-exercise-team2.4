@@ -6,8 +6,17 @@ name = "pypi"
 [packages]
 pylint = "*"
 black = "*"
+flask = "*"
 
 [dev-packages]
+pytest = "*"
+pytest-flask = "*"
+pytest-cov = "*"
+mediapipe = "*"
+numpy = "*"
+onnxruntime = "*"
+huggingface_hub = "*"
+pillow = "*"
 
 [requires]
 python_version = "3.10"

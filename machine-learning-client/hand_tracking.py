@@ -1,3 +1,5 @@
+"""Find hand landmarks in an image using MediaPipe."""
+
 import io
 from pathlib import Path
 

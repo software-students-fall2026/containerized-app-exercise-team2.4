@@ -1,4 +1,5 @@
-# reads ASL sign via output from hand_tracking.py
+"""Reads ASL sign via output from hand_tracking.py"""
+
 import numpy as np
 import onnxruntime as ort
 from huggingface_hub import hf_hub_download
@@ -11,6 +12,7 @@ session = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
 
 
 def predict(landmarks):
+    """Return the most likely ASL label and its confidence."""
     # 21 pts to numbers, centered on the wrist and scaled by hand size
     pts = np.array([[p.x, p.y, p.z] for p in landmarks], dtype=np.float32)
     pts = pts - pts[0]

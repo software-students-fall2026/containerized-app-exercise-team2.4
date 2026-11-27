@@ -1,4 +1,5 @@
-# communication between hands_tracking.py and classifer.py
+"""Communication between hands_tracking.py and classifer.py."""
+
 from flask import Flask, jsonify, request
 from classifier import predict
 from hand_tracking import detect_hand
@@ -11,6 +12,7 @@ CONFIDENCE_THRESHOLD = 0.6
 
 @app.post("/predict")
 def predict_sign():
+    """Find the hand in the uploaded image and return the ASL sign."""
     # get uploaded frame
     file = request.files.get("image")
     if file is None:
@@ -38,6 +40,7 @@ def predict_sign():
 # checks if server is running
 @app.get("/health")
 def health():
+    """Report that the server is running."""
     return jsonify({"status": "ok"})
 
 
