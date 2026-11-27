@@ -1,4 +1,5 @@
-# communication between hands_tracking.py and classifer.py
+"""Communication between hands_tracking.py and classifer.py."""
+
 from flask import Flask, jsonify, request
 from classifier import predict
 from hand_tracking import detect_hand

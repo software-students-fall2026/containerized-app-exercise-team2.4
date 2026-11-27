@@ -7,15 +7,16 @@ name = "pypi"
 pylint = "*"
 black = "*"
 flask = "*"
-mediapipe = "*"
-numpy = "*"
-pillow = "*"
-onnxruntime = "*"
-huggingface_hub = "*"
-pytest = "*"
-pytest-cov = "*"
 
 [dev-packages]
+pytest = "*"
+pytest-flask = "*"
+pytest-cov = "*"
+mediapipe = "*"
+numpy = "*"
+onnxruntime = "*"
+huggingface_hub = "*"
+pillow = "*"
 
 [requires]
 python_version = "3.10"
